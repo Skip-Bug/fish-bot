@@ -8,8 +8,12 @@ def build_menu(context, offset=0):
     strapi_url = context.bot_data["strapi_url"]
     session = context.bot_data["strapi_session"]
     redis_connect = context.bot_data["redis"]
-    products, total = get_products(strapi_url, session, redis_connect, offset)
-
+    products, total = get_products(
+        strapi_url,
+        session,
+        redis_connect=redis_connect,
+        offset=offset,
+    )
     keyboard = []
     if not products:
         keyboard.append(

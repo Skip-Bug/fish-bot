@@ -4,6 +4,7 @@ import json
 PRODUCTS_CACHE_KEY = "strapi:products"
 PRODUCTS_CACHE_TTL = 300
 PRODUCTS_PER_PAGE = 5
+PRODUCTS_FETCH_LIMIT = 1000
 
 
 def get_products(strapi_url, session, redis_connect=None, offset=0, limit=None):
@@ -19,7 +20,10 @@ def get_products(strapi_url, session, redis_connect=None, offset=0, limit=None):
                 return cached_data[offset : offset + limit], len(cached_data)
 
     url = f"{strapi_url}/api/products"
-    params = {"pagination[limit]": 100, "pagination[withCount]": "true"}
+    params = {
+        "pagination[limit]": PRODUCTS_FETCH_LIMIT,
+        "pagination[withCount]": "true",
+    }
     response = session.get(url, params=params, timeout=5)
     response.raise_for_status()
     data = response.json()
@@ -97,7 +101,7 @@ def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
         "data": {
             "quantity": weight,
             "product": {"connect": [product_id]},
-            "cart": cart_id,
+            "cart": {"connect": [cart_id]},
         }
     }
     response = session.post(url_item, json=payload_item, timeout=5)
