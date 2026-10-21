@@ -7,14 +7,7 @@ def build_menu(context):
     """Создает инлайн-клавиатуру для главного меню."""
     strapi_url = context.bot_data["strapi_url"]
     session = context.bot_data["strapi_session"]
-    is_ok, products_info = get_products(strapi_url, session)
-
-    if not is_ok:
-        return InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("Ошибка загрузки", callback_data="error")],
-            ]
-        )
+    products_info = get_products(strapi_url, session)
 
     products = products_info.get("data", [])
     keyboard = []

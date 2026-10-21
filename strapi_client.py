@@ -5,7 +5,8 @@ def get_products(strapi_url, session):
     """Запрос к апи для получения списка товара"""
     url = f"{strapi_url}/api/products"
     response = session.get(url, timeout=5)
-    return response.ok, response.json()
+    response.raise_for_status()
+    return response.json()
 
 
 def get_product(product_id, strapi_url, session):
@@ -13,14 +14,13 @@ def get_product(product_id, strapi_url, session):
     url = f"{strapi_url}/api/products/{product_id}"
     params = {"populate": "*"}
     response = session.get(url, params=params, timeout=5)
-    return response.ok, response.json()
+    response.raise_for_status()
+    return response.json()
 
 
 def fetch_product_details(product_id, strapi_url, session):
     """Запрашивает данные по товару у апи."""
-    is_ok, product_info = get_product(product_id, strapi_url, session)
-    if not is_ok:
-        return None
+    product_info = get_product(product_id, strapi_url, session)
 
     attributes = product_info.get("data", {}).get("attributes", {})
     return {
@@ -39,6 +39,7 @@ def load_picture(picture_data, strapi_url, session):
         image_url = f"{strapi_url}{image_url}"
 
     image_response = session.get(image_url, timeout=10)
+    image_response.raise_for_status()
     image_bytes = io.BytesIO(image_response.content)
     return image_bytes
 
@@ -48,6 +49,7 @@ def get_or_create_cart(user_id, strapi_url, session):
     url = f"{strapi_url}/api/carts"
     params = {"filters[external_id][$eq]": user_id}
     response = session.get(url, params=params, timeout=5)
+    response.raise_for_status()
 
     carts = response.json().get("data") or [] if response.ok else []
     if carts:
@@ -85,8 +87,8 @@ def get_cart_with_products(user_id, strapi_url, session):
         "populate[cart_items][populate]": "product",
     }
     response = session.get(url, params=params, timeout=5)
-    if not response.ok:
-        return []
+    response.raise_for_status()
+
     carts = response.json().get("data", [])
     if not carts:
         return []
@@ -107,10 +109,11 @@ def find_client(user_id, strapi_url, session):
     url = f"{strapi_url}/api/clients"
     params = {"filters[external_id][$eq]": user_id}
     response = session.get(url, params=params, timeout=5)
-    if response.ok:
-        clients = response.json().get("data", [])
-        if clients:
-            return clients[0]["id"]
+    response.raise_for_status()
+
+    clients = response.json().get("data", [])
+    if clients:
+        return clients[0]["id"]
     return None
 
 
