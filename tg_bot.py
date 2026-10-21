@@ -1,13 +1,10 @@
 import logging
 import sys
-from functools import wraps
 
 import redis
 import requests
 from environs import Env
-from redis.exceptions import RedisError
-from telegram import ChatAction, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest, TelegramError
+from telegram import ChatAction
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -16,6 +13,11 @@ from telegram.ext import (
     Updater,
 )
 
+from keyboards import (
+    add_cart_menu,
+    build_cart_menu,
+    build_menu,
+)
 from strapi_client import (
     add_item_to_cart,
     clear_user_cart,
@@ -24,189 +26,20 @@ from strapi_client import (
     get_cart_with_products,
     get_or_create_cart,
     get_or_create_client,
-    get_products,
     load_picture,
+)
+from tg_bot_utils import (
+    _finish_checkout,
+    _format_cart_text,
+    _track_message,
+    cleanup_chat,
+    log_errors,
+    send_action,
 )
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 logger = logging.getLogger("fish-bot")
-
-MESSAGES_TO_DELETE_TTL_SECONDS = 86400
-
-
-# ==========================================
-# 1. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (UTILS)
-# ==========================================
-def log_errors(func):
-    """Декоратор: логирует ошибки, сообщает пользователю и сбрасывает состояние."""
-
-    @wraps(func)
-    def wrapper(update, context, *args, **kwargs):
-        try:
-            return func(update, context, *args, **kwargs)
-
-        except (requests.RequestException, TelegramError, RedisError) as err:
-            logger.error(f"Сетевая ошибка в {func.__name__}: {err}")
-            error_text = "Произошла ошибка соединения. Пожалуйста, попробуйте ещё раз."
-
-        except Exception as err:
-            logger.critical(
-                f"КРИТИЧЕСКАЯ ОШИБКА в {func.__name__}: {type(err).__name__} - {err}",
-                exc_info=True,
-            )
-            error_text = "Что-то пошло не так. Возвращаю в главное меню."
-
-        chat_id = update.effective_chat.id
-        try:
-            msg = context.bot.send_message(
-                chat_id=chat_id,
-                text=error_text,
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("В главное меню", callback_data="back")]]
-                ),
-            )
-            _track_message(chat_id, msg.message_id, context)
-        except Exception:
-            pass
-
-        return "START"
-
-    return wrapper
-
-
-def send_action(action):
-    """Отправляет указанный статус, пока работает хендлер."""
-
-    def decorator(func):
-        @wraps(func)
-        def command_func(update, context, *args, **kwargs):
-            context.bot.send_chat_action(
-                chat_id=update.effective_message.chat_id, action=action
-            )
-            return func(update, context, *args, **kwargs)
-
-        return command_func
-
-    return decorator
-
-
-def _track_message(chat_id, message_id, context):
-    """Кладёт ID сообщения в набор на удаление."""
-    redis_connect = context.bot_data["redis"]
-    key = f"chat_msgs:{chat_id}"
-    redis_connect.sadd(key, message_id)
-    redis_connect.expire(key, MESSAGES_TO_DELETE_TTL_SECONDS)
-
-
-def cleanup_chat(chat_id, context):
-    """Удаляет все отслеживаемые сообщения чата."""
-    redis_connect = context.bot_data["redis"]
-    key = f"chat_msgs:{chat_id}"
-
-    for tracked_message_id in redis_connect.smembers(key):
-        try:
-            context.bot.delete_message(
-                chat_id=chat_id, message_id=int(tracked_message_id)
-            )
-        except BadRequest:
-            pass
-        redis_connect.srem(key, tracked_message_id)
-
-
-def _format_cart_text(cart_items):
-    """Форматирует список позиций в строку."""
-    if not cart_items:
-        return "Ваша корзина пуста."
-
-    text = "<b>Ваша корзина:</b>\n\n"
-    for item in cart_items:
-        attrs = item.get("attributes", {})
-        weight = attrs.get("quantity", 0)
-        product = attrs.get("product", {}).get("data")
-        if product:
-            product_attrs = product.get("attributes", {})
-            title = product_attrs.get("title", "Без названия")
-            price = product_attrs.get("price", "0")
-            text += f"{title} — {weight} кг — {price} руб.\n"
-
-    return text
-
-
-def _finish_checkout(chat_id, context, message_text):
-    """Завершает оформление заказа: чистит чат, отправляет сообщение и сбрасывает в меню."""
-    cleanup_chat(chat_id, context)
-    message = context.bot.send_message(
-        chat_id=chat_id,
-        text=message_text,
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("В главное меню", callback_data="back")]]
-        ),
-    )
-    _track_message(chat_id, message.message_id, context)
-    return "START"
-
-
-# ==========================================
-# 3. КЛАВИАТУРЫ И СООБЩЕНИЯ
-# ==========================================
-def _build_menu(context):
-    """Создает инлайн-клавиатуру"""
-    strapi_url = context.bot_data["strapi_url"]
-    session = context.bot_data["strapi_session"]
-    status, products_info = get_products(strapi_url, session)
-    keyboard = []
-    if status != 200:
-        keyboard = [
-            [InlineKeyboardButton("Ошибка загрузки", callback_data="error")],
-        ]
-        return InlineKeyboardMarkup(keyboard)
-    products = products_info.get("data", [])
-
-    if not products:
-        keyboard.append([InlineKeyboardButton("Товаров нет", callback_data="empty")])
-    else:
-        for product in products:
-            product_id = str(product["id"])
-
-            if "attributes" in product:
-                title = product["attributes"].get("title", "Без названия")
-            else:
-                title = product.get("title", "Без названия")
-
-            keyboard.append(
-                [InlineKeyboardButton(title, callback_data=product_id)],
-            )
-
-    keyboard.append([InlineKeyboardButton("🛒 Моя корзина", callback_data="cart")])
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-def add_cart_menu(product_id):
-    """Добавляет кнопки корзины и возврат к меню."""
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "Добавить в корзину",
-                callback_data=f"add_{product_id}",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "🛒 Моя корзина",
-                callback_data="cart",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "Вернуться в меню",
-                callback_data="back",
-            )
-        ],
-    ]
-    return InlineKeyboardMarkup(keyboard)
 
 
 def _send_product_message(update, context, product_data):
@@ -239,9 +72,6 @@ def _send_product_message(update, context, product_data):
         )
 
 
-# ==========================================
-# 4. ХЭНДЛЕРЫ И СТЕЙТ-МАШИНА
-# ==========================================
 @log_errors
 @send_action(ChatAction.TYPING)
 def start(update, context):
@@ -253,7 +83,7 @@ def start(update, context):
     cleanup_chat(chat_id, context)
 
     text = "Пожалуйста, выбери нужный пункт меню:"
-    markup = _build_menu(context)
+    markup = build_menu(context)
 
     message = context.bot.send_message(
         chat_id=chat_id,
@@ -328,20 +158,12 @@ def _render_cart(chat_id, context, strapi_url, session):
     cart_items = get_cart_with_products(chat_id, strapi_url, session)
     text = _format_cart_text(cart_items)
 
-    keyboard = []
-    if cart_items:
-        keyboard.append([InlineKeyboardButton("Оплатить", callback_data="pay")])
-        keyboard.append(
-            [InlineKeyboardButton("Очистить корзину", callback_data="clear_cart")]
-        )
-    keyboard.append([InlineKeyboardButton("В главное меню", callback_data="back")])
-
     cleanup_chat(chat_id, context)
     sent_message = context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=build_cart_menu(cart_items),
     )
     _track_message(chat_id, sent_message.message_id, context)
 
@@ -493,9 +315,6 @@ def handle_users_reply(update, context):
         redis_connect.set(chat_id, next_state)
 
 
-# ==========================================
-# 5. ЗАПУСК БОТА
-# ==========================================
 def main():
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
