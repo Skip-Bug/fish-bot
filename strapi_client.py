@@ -1,9 +1,4 @@
 import io
-import logging
-
-import requests
-
-logger = logging.getLogger("fish-bot")
 
 
 def get_products(strapi_url, session):
@@ -15,8 +10,9 @@ def get_products(strapi_url, session):
 
 def get_product(product_id, strapi_url, session):
     """Запрос к апи для получения информации о товаре"""
-    url = f"{strapi_url}/api/products/{product_id}?populate=*"
-    response = session.get(url, timeout=5)
+    url = f"{strapi_url}/api/products/{product_id}"
+    params = {"populate": "*"}
+    response = session.get(url, params=params, timeout=5)
     return response.ok, response.json()
 
 
@@ -49,10 +45,11 @@ def load_picture(picture_data, strapi_url, session):
 
 def get_or_create_cart(user_id, strapi_url, session):
     """Ищет корзину по id пользователя. Если нет — создаёт пустую."""
-    response = session.get(
-        f"{strapi_url}/api/carts?filters[external_id][$eq]={user_id}", timeout=5
-    )
-    carts = response.json().get("data") or [] if response.status_code == 200 else []
+    url = f"{strapi_url}/api/carts"
+    params = {"filters[external_id][$eq]": user_id}
+    response = session.get(url, params=params, timeout=5)
+
+    carts = response.json().get("data") or [] if response.ok else []
     if carts:
         return carts[0]["id"]
 
@@ -82,8 +79,12 @@ def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
 
 def get_cart_with_products(user_id, strapi_url, session):
     """Получает корзину пользователя вместе с товарами."""
-    url = f"{strapi_url}/api/carts?filters[external_id][$eq]={user_id}&populate[cart_items][populate]=product"
-    response = session.get(url, timeout=5)
+    url = f"{strapi_url}/api/carts"
+    params = {
+        "filters[external_id][$eq]": user_id,
+        "populate[cart_items][populate]": "product",
+    }
+    response = session.get(url, params=params, timeout=5)
     if not response.ok:
         return []
     carts = response.json().get("data", [])
@@ -103,8 +104,9 @@ def clear_user_cart(cart_items, strapi_url, session):
 
 def find_client(user_id, strapi_url, session):
     """Только ищет клиента по id пользователя. Возвращает ID или None."""
-    url = f"{strapi_url}/api/clients?filters[external_id][$eq]={user_id}"
-    response = session.get(url, timeout=5)
+    url = f"{strapi_url}/api/clients"
+    params = {"filters[external_id][$eq]": user_id}
+    response = session.get(url, params=params, timeout=5)
     if response.ok:
         clients = response.json().get("data", [])
         if clients:
