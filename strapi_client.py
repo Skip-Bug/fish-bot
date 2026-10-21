@@ -141,7 +141,7 @@ def add_item_to_cart(user_id, product_id, weight, strapi_url, session):
             new_quantity = current_weight + add_weight
             return _update_cart_item(
                 item["id"],
-                float(new_quantity),
+                str(new_quantity),
                 strapi_url,
                 session,
             )
