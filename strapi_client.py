@@ -10,20 +10,20 @@ def get_products(strapi_url, session):
     """Запрос к апи для получения списка товара"""
     url = f"{strapi_url}/api/products"
     response = session.get(url, timeout=5)
-    return response.status_code, response.json()
+    return response.ok, response.json()
 
 
 def get_product(product_id, strapi_url, session):
     """Запрос к апи для получения информации о товаре"""
     url = f"{strapi_url}/api/products/{product_id}?populate=*"
     response = session.get(url, timeout=5)
-    return response.status_code, response.json()
+    return response.ok, response.json()
 
 
 def fetch_product_details(product_id, strapi_url, session):
     """Запрашивает данные по товару у апи."""
-    status, product_info = get_product(product_id, strapi_url, session)
-    if status != 200:
+    is_ok, product_info = get_product(product_id, strapi_url, session)
+    if not is_ok:
         return None
 
     attributes = product_info.get("data", {}).get("attributes", {})
@@ -61,9 +61,7 @@ def get_or_create_cart(user_id, strapi_url, session):
         json={"data": {"external_id": str(user_id)}},
         timeout=5,
     )
-    if response.status_code not in (200, 201):
-        logger.error(f"Не удалось создать корзину: {response.text}")
-        raise requests.HTTPError(f"Не удалось создать корзину: {response.text}")
+    response.raise_for_status()
     return response.json()["data"]["id"]
 
 
@@ -78,9 +76,7 @@ def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
         }
     }
     response = session.post(url_item, json=payload_item, timeout=5)
-    if response.status_code not in (200, 201):
-        logger.error(f"Ошибка создания позиции: {response.text}")
-        raise requests.HTTPError(f"Ошибка создания позиции: {response.text}")
+    response.raise_for_status()
     return response.json()["data"]["id"]
 
 
@@ -88,7 +84,7 @@ def get_cart_with_products(user_id, strapi_url, session):
     """Получает корзину пользователя вместе с товарами."""
     url = f"{strapi_url}/api/carts?filters[external_id][$eq]={user_id}&populate[cart_items][populate]=product"
     response = session.get(url, timeout=5)
-    if response.status_code != 200:
+    if not response.ok:
         return []
     carts = response.json().get("data", [])
     if not carts:
@@ -109,7 +105,7 @@ def find_client(user_id, strapi_url, session):
     """Только ищет клиента по id пользователя. Возвращает ID или None."""
     url = f"{strapi_url}/api/clients?filters[external_id][$eq]={user_id}"
     response = session.get(url, timeout=5)
-    if response.status_code == 200:
+    if response.ok:
         clients = response.json().get("data", [])
         if clients:
             return clients[0]["id"]
