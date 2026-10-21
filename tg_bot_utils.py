@@ -23,10 +23,7 @@ def log_errors(func):
             logger.error(f"Сетевая ошибка в {func.__name__}: {err}")
             error_text = "Произошла ошибка соединения. Пожалуйста, попробуйте ещё раз."
         except Exception as err:
-            logger.critical(
-                f"КРИТИЧЕСКАЯ ОШИБКА в {func.__name__}: {type(err).__name__} - {err}",
-                exc_info=True,
-            )
+            logger.exception(f"КРИТИЧЕСКАЯ ОШИБКА в {func.__name__}: {err}")
             error_text = "Что-то пошло не так. Возвращаю в главное меню."
 
         chat_id = update.effective_chat.id
