@@ -36,29 +36,37 @@ Telegram-бот для заказа рыбы и рыбных продуктов.
 
 ## ⚙️ Переменные окружения
 
-### 🤖 Telegram-бот (`fish-bot/.env`)
-
-- 🔑 **TG_BOT_TOKEN**: [инструкция по регистрации бота](https://way23.ru/%D1%80%D0%B5%D0%B3%D0%B8%D1%81%D1%82%D1%80%D0%B0%D1%86%D0%B8%D1%8F-%D0%B1%D0%BE%D1%82%D0%B0-%D0%B2-telegram.html).
-- 🟡 **REDIS_URL**: URL подключения к Redis. По умолчанию: `redis://localhost:6379/0`.
-- 🌐 **TG_PROXY_URL**: Прокси для Telegram API. По умолчанию: `socks5h://127.0.0.1:2080`.
-- 🟣 **STRAPI_URL**: URL Strapi CMS. По умолчанию: `http://localhost:1337`.
-
-Создайте файл `.env` в папке `fish-bot/`:
+Создайте файл `.env` в корне проекта:
 
 ```env
 TG_BOT_TOKEN=ваш_токен_телеграм_бота
 REDIS_URL=redis://localhost:6379/0
-TG_PROXY_URL=socks5h://127.0.0.1:2080
+TG_PROXY_URL= # если нужно проксирование
 STRAPI_URL=http://localhost:1337
 ```
+
+| Переменная     | Описание                                                                                                                                                 | По умолчанию               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `TG_BOT_TOKEN` | [Токен Telegram-бота](https://way23.ru/%D1%80%D0%B5%D0%B3%D0%B8%D1%81%D1%82%D1%80%D0%B0%D1%86%D0%B8%D1%8F-%D0%B1%D0%BE%D1%82%D0%B0-%D0%B2-telegram.html) | —                          |
+| `REDIS_URL`    | URL подключения к Redis                                                                                                                                  | `redis://localhost:6379/0` |
+| `TG_PROXY_URL` | Прокси для Telegram API                                                                                                                                  | `socks5h://127.0.0.1:1010` |
+| `STRAPI_URL`   | URL Strapi CMS                                                                                                                                           | `http://localhost:1337`    |
+
+Файл `.env` **не попадает в git** — у каждого разработчика свой.
 
 ## 🧱 Установка
 
 **📦 Установите зависимости Python:**
 
 ```bash
-cd fish-bot
 pip install -r requirements.txt
+```
+
+**📦 Установите зависимости Node.js (для Strapi):**
+
+```bash
+cd fish-cms
+npm install
 ```
 
 ## 🗄️ Модели Strapi CMS
@@ -76,18 +84,18 @@ pip install -r requirements.txt
 
 ### Client (Клиент)
 
-| Поле    | Тип    | Описание                                           |
-| ------- | ------ | -------------------------------------------------- |
-| `tg_id` | string | ID пользователя Telegram, уникальный, обязательный |
-| `email` | email  | Email клиента                                      |
+| Поле          | Тип    | Описание                                      |
+| ------------- | ------ | --------------------------------------------- |
+| `external_id` | string | Уникальный ID пользователя (Telegram/chat ID) |
+| `email`       | email  | Email клиента                                 |
 
 ### Cart (Корзина)
 
-| Поле         | Тип      | Описание                       |
-| ------------ | -------- | ------------------------------ |
-| `tg_id`      | string   | ID Telegram для привязки       |
-| `client`     | relation | Связь с Client (many-to-one)   |
-| `cart_items` | relation | Связь с CartItem (one-to-many) |
+| Поле          | Тип      | Описание                             |
+| ------------- | -------- | ------------------------------------ |
+| `external_id` | string   | ID пользователя для привязки корзины |
+| `client`      | relation | Связь с Client (many-to-one)         |
+| `cart_items`  | relation | Связь с CartItem (one-to-many)       |
 
 ### CartItem (Позиция корзины)
 
@@ -111,7 +119,6 @@ Client (1) ────< Cart (N) ────< CartItem (N) >─── Product 
 
 ```bash
 cd fish-cms
-npm install
 npm run develop
 ```
 
@@ -122,7 +129,6 @@ npm run develop
 **2. Запустите Telegram-бота:**
 
 ```bash
-cd fish-bot
 python tg_bot.py
 ```
 
