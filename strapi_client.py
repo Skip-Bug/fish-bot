@@ -1,16 +1,42 @@
 import io
+import json
+
+PRODUCTS_CACHE_KEY = "strapi:products"
+PRODUCTS_CACHE_TTL = 300
+PRODUCTS_PER_PAGE = 5
 
 
-def get_products(strapi_url, session):
-    """Запрос к апи для получения списка товара"""
+def get_products(strapi_url, session, redis_connect=None, offset=0, limit=None):
+    """Запрос к апи для получения списка товара с кэшированием в Redis."""
+    if limit is None:
+        limit = PRODUCTS_PER_PAGE
+
+    if redis_connect:
+        cached = redis_connect.get(PRODUCTS_CACHE_KEY)
+        if cached:
+            cached_data = json.loads(cached)
+            if isinstance(cached_data, list):
+                return cached_data[offset : offset + limit], len(cached_data)
+
     url = f"{strapi_url}/api/products"
-    response = session.get(url, timeout=5)
+    params = {"pagination[limit]": 100, "pagination[withCount]": "true"}
+    response = session.get(url, params=params, timeout=5)
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+
+    all_products = data.get("data", [])
+    total = data.get("meta", {}).get("pagination", {}).get("total", len(all_products))
+
+    if redis_connect:
+        redis_connect.setex(
+            PRODUCTS_CACHE_KEY, PRODUCTS_CACHE_TTL, json.dumps(all_products)
+        )
+
+    return all_products[offset : offset + limit], total
 
 
 def get_product(product_id, strapi_url, session):
-    """Запрос к апи для получения информации о товаре"""
+    """Запрос к апи для получения информации о товаре."""
     url = f"{strapi_url}/api/products/{product_id}"
     params = {"populate": "*"}
     response = session.get(url, params=params, timeout=5)
@@ -19,7 +45,7 @@ def get_product(product_id, strapi_url, session):
 
 
 def fetch_product_details(product_id, strapi_url, session):
-    """Запрашивает данные по товару у апи."""
+    """Извлекает данные товара из ответа API."""
     product_info = get_product(product_id, strapi_url, session)
 
     attributes = product_info.get("data", {}).get("attributes", {})
@@ -51,7 +77,7 @@ def get_or_create_cart(user_id, strapi_url, session):
     response = session.get(url, params=params, timeout=5)
     response.raise_for_status()
 
-    carts = response.json().get("data") or [] if response.ok else []
+    carts = response.json().get("data", [])
     if carts:
         return carts[0]["id"]
 
@@ -65,7 +91,7 @@ def get_or_create_cart(user_id, strapi_url, session):
 
 
 def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
-    """Создаёт позицию и сразу привязывает её к корзине."""
+    """Создаёт позицию в корзине с привязкой к товару."""
     url_item = f"{strapi_url}/api/cart-items"
     payload_item = {
         "data": {
@@ -80,7 +106,7 @@ def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
 
 
 def get_cart_with_products(user_id, strapi_url, session):
-    """Получает корзину пользователя вместе с товарами."""
+    """Получает корзину пользователя с позициями и товарами."""
     url = f"{strapi_url}/api/carts"
     params = {
         "filters[external_id][$eq]": user_id,

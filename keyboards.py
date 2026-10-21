@@ -1,29 +1,35 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from strapi_client import get_products
+from strapi_client import PRODUCTS_PER_PAGE, get_products
 
 
-def build_menu(context):
-    """Создает инлайн-клавиатуру для главного меню."""
+def build_menu(context, offset=0):
+    """Создает инлайн-клавиатуру для главного меню с пагинацией."""
     strapi_url = context.bot_data["strapi_url"]
     session = context.bot_data["strapi_session"]
-    products_info = get_products(strapi_url, session)
+    redis_connect = context.bot_data["redis"]
+    products, total = get_products(strapi_url, session, redis_connect, offset)
 
-    products = products_info.get("data", [])
     keyboard = []
-
     if not products:
-        keyboard.append([InlineKeyboardButton("Товаров нет", callback_data="empty")])
-    else:
-        for product in products:
-            product_id = str(product["id"])
-            if "attributes" in product:
-                title = product["attributes"].get("title", "Без названия")
-            else:
-                title = product.get("title", "Без названия")
-            keyboard.append([InlineKeyboardButton(title, callback_data=product_id)])
+        keyboard.append(
+            [InlineKeyboardButton("Товаров нет", callback_data="empty")],
+        )
+    for product in products:
+        product_id = str(product["id"])
+        if "attributes" in product:
+            title = product["attributes"].get("title", "Без названия")
+        else:
+            title = product.get("title", "Без названия")
+        keyboard.append([InlineKeyboardButton(title, callback_data=product_id)])
 
+    next_offset = offset + PRODUCTS_PER_PAGE
+    if next_offset < total:
+        keyboard.append(
+            [InlineKeyboardButton("Показать ещё", callback_data=f"more_{next_offset}")]
+        )
     keyboard.append([InlineKeyboardButton("🛒 Моя корзина", callback_data="cart")])
+
     return InlineKeyboardMarkup(keyboard)
 
 

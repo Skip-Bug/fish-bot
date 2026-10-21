@@ -33,7 +33,7 @@ def log_errors(func):
                 text=error_text,
                 reply_markup=build_back_menu(),
             )
-            _track_message(chat_id, msg.message_id, context)
+            track_message(chat_id, msg.message_id, context)
         except Exception:
             pass
         return "START"
@@ -57,7 +57,7 @@ def send_action(action):
     return decorator
 
 
-def _track_message(chat_id, message_id, context):
+def track_message(chat_id, message_id, context):
     """Кладёт ID сообщения в набор на удаление."""
     redis_connect = context.bot_data["redis"]
     key = f"chat_msgs:{chat_id}"
@@ -80,7 +80,7 @@ def cleanup_chat(chat_id, context):
         redis_connect.srem(key, tracked_message_id)
 
 
-def _format_cart_text(cart_items):
+def format_cart_text(cart_items):
     """Форматирует список позиций в строку."""
     if not cart_items:
         return "Ваша корзина пуста."
@@ -99,7 +99,7 @@ def _format_cart_text(cart_items):
     return text
 
 
-def _finish_checkout(chat_id, context, message_text):
+def finish_checkout(chat_id, context, message_text):
     """Завершает оформление заказа: чистит чат, отправляет сообщение и сбрасывает в меню."""
     cleanup_chat(chat_id, context)
     message = context.bot.send_message(
@@ -107,5 +107,5 @@ def _finish_checkout(chat_id, context, message_text):
         text=message_text,
         reply_markup=build_back_menu(),
     )
-    _track_message(chat_id, message.message_id, context)
+    track_message(chat_id, message.message_id, context)
     return "START"

@@ -29,12 +29,12 @@ from strapi_client import (
     load_picture,
 )
 from tg_bot_utils import (
-    _finish_checkout,
-    _format_cart_text,
-    _track_message,
     cleanup_chat,
+    finish_checkout,
+    format_cart_text,
     log_errors,
     send_action,
+    track_message,
 )
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -83,7 +83,7 @@ def start(update, context):
     cleanup_chat(chat_id, context)
 
     text = "Пожалуйста, выбери нужный пункт меню:"
-    markup = build_menu(context)
+    markup = build_menu(context, offset=0)
 
     message = context.bot.send_message(
         chat_id=chat_id,
@@ -91,14 +91,14 @@ def start(update, context):
         reply_markup=markup,
     )
 
-    _track_message(chat_id, message.message_id, context)
+    track_message(chat_id, message.message_id, context)
     return "HANDLE_MENU"
 
 
 @log_errors
-@send_action(ChatAction.UPLOAD_PHOTO)
+@send_action(ChatAction.TYPING)
 def handle_menu(update, context):
-    """Показывает выбор пользователя."""
+    """Показывает выбор пользователя или пагинацию."""
     query = update.callback_query
 
     if query.data == "cart":
@@ -106,6 +106,11 @@ def handle_menu(update, context):
     if query.data == "empty":
         query.answer("В магазине пока нет доступных товаров.", show_alert=True)
         return "HANDLE_MENU"
+
+    if query.data.startswith("more_"):
+        offset = int(query.data.split("_")[1])
+        return show_more_products(update, context, offset)
+
     query.answer()
     strapi_url = context.bot_data["strapi_url"]
     session = context.bot_data["strapi_session"]
@@ -118,13 +123,36 @@ def handle_menu(update, context):
     chat_id = query.message.chat_id
     cleanup_chat(chat_id, context)
     sent_message = _send_product_message(update, context, product_data)
-    _track_message(chat_id, sent_message.message_id, context)
+    track_message(chat_id, sent_message.message_id, context)
 
     return "HANDLE_DESCRIPTION"
 
 
 @log_errors
 @send_action(ChatAction.TYPING)
+def show_more_products(update, context, offset):
+    """Показывает следующую порцию товаров."""
+    query = update.callback_query
+    query.answer()
+
+    chat_id = query.message.chat_id
+    cleanup_chat(chat_id, context)
+
+    text = "Пожалуйста, выбери нужный пункт меню:"
+    markup = build_menu(context, offset=offset)
+
+    message = context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=markup,
+    )
+    track_message(chat_id, message.message_id, context)
+
+    return "HANDLE_MENU"
+
+
+@log_errors
+@send_action(ChatAction.UPLOAD_PHOTO)
 def handle_description(update, context):
     query = update.callback_query
 
@@ -156,7 +184,7 @@ def handle_description(update, context):
 def _render_cart(chat_id, context, strapi_url, session):
     """Внутренняя функция: рисует корзину с кнопками."""
     cart_items = get_cart_with_products(chat_id, strapi_url, session)
-    text = _format_cart_text(cart_items)
+    text = format_cart_text(cart_items)
 
     cleanup_chat(chat_id, context)
     sent_message = context.bot.send_message(
@@ -165,7 +193,7 @@ def _render_cart(chat_id, context, strapi_url, session):
         parse_mode="HTML",
         reply_markup=build_cart_menu(cart_items),
     )
-    _track_message(chat_id, sent_message.message_id, context)
+    track_message(chat_id, sent_message.message_id, context)
 
 
 def _clear_cart(chat_id, context, strapi_url, query, session):
@@ -190,17 +218,16 @@ def _process_payment(chat_id, context, strapi_url, query):
     if client_id:
         logger.info(f"Клиент {client_id} уже в базе. Быстрое оформление.")
         clear_user_cart(cart_items, strapi_url, session)
-        return _finish_checkout(
+        return finish_checkout(
             chat_id, context, "Спасибо! Заказ оформлен. Менеджер свяжется с вами."
         )
-    else:
-        cleanup_chat(chat_id, context)
-        sent_msg = context.bot.send_message(
-            chat_id=chat_id,
-            text="Для оформления заказа, пожалуйста, отправьте ваш email:",
-        )
-        _track_message(chat_id, sent_msg.message_id, context)
-        return "WAITING_EMAIL"
+    cleanup_chat(chat_id, context)
+    sent_msg = context.bot.send_message(
+        chat_id=chat_id,
+        text="Для оформления заказа, пожалуйста, отправьте ваш email:",
+    )
+    track_message(chat_id, sent_msg.message_id, context)
+    return "WAITING_EMAIL"
 
 
 @log_errors
@@ -239,7 +266,7 @@ def handle_email(update, context):
             chat_id=chat_id,
             text="Похоже, это не email. Попробуйте еще раз:",
         )
-        _track_message(chat_id, retry_prompt_message.message_id, context)
+        track_message(chat_id, retry_prompt_message.message_id, context)
         return "WAITING_EMAIL"
 
     logger.info(f"Получен email от пользователя {chat_id}: {email}")
@@ -256,7 +283,7 @@ def handle_email(update, context):
                 chat_id=chat_id,
                 text="Похоже, такой email не существует или в нём опечатка. Попробуйте еще раз:",
             )
-            _track_message(chat_id, retry_prompt_message.message_id, context)
+            track_message(chat_id, retry_prompt_message.message_id, context)
             return "WAITING_EMAIL"
         raise
 
@@ -267,7 +294,7 @@ def handle_email(update, context):
     else:
         logger.info(f"Внимание: Корзина пользователя {chat_id} пуста.")
 
-    return _finish_checkout(
+    return finish_checkout(
         chat_id, context, "Спасибо! Мы получили вашу почту. Менеджер свяжется с вами."
     )
 
@@ -283,11 +310,11 @@ def handle_users_reply(update, context):
     if update.message:
         user_reply = update.message.text
         chat_id = update.message.chat_id
-        _track_message(chat_id, update.message.message_id, context)
+        track_message(chat_id, update.message.message_id, context)
     elif update.callback_query:
         user_reply = update.callback_query.data
         chat_id = update.callback_query.message.chat_id
-        _track_message(chat_id, update.callback_query.message.message_id, context)
+        track_message(chat_id, update.callback_query.message.message_id, context)
     else:
         return
 
