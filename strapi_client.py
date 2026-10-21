@@ -1,5 +1,6 @@
 import io
 import json
+from decimal import Decimal
 
 PRODUCTS_CACHE_KEY = "strapi:products"
 PRODUCTS_CACHE_TTL = 300
@@ -77,13 +78,19 @@ def load_picture(picture_data, strapi_url, session):
 def get_or_create_cart(user_id, strapi_url, session):
     """Ищет корзину по id пользователя. Если нет — создаёт пустую."""
     url = f"{strapi_url}/api/carts"
-    params = {"filters[external_id][$eq]": user_id}
+    params = {
+        "filters[external_id][$eq]": user_id,
+        "populate[cart_items][populate]": "product",
+    }
     response = session.get(url, params=params, timeout=5)
     response.raise_for_status()
 
     carts = response.json().get("data", [])
     if carts:
-        return carts[0]["id"]
+        cart_id = carts[0]["id"]
+        cart_items_data = carts[0].get("attributes", {}).get("cart_items") or {}
+        cart_items = cart_items_data.get("data", [])
+        return cart_id, cart_items
 
     response = session.post(
         f"{strapi_url}/api/carts",
@@ -91,11 +98,11 @@ def get_or_create_cart(user_id, strapi_url, session):
         timeout=5,
     )
     response.raise_for_status()
-    return response.json()["data"]["id"]
+    return response.json()["data"]["id"], []
 
 
-def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
-    """Создаёт позицию в корзине с привязкой к товару."""
+def _create_cart_item(cart_id, product_id, weight, strapi_url, session):
+    """Создаёт новую позицию в корзине (POST)."""
     url_item = f"{strapi_url}/api/cart-items"
     payload_item = {
         "data": {
@@ -107,6 +114,39 @@ def add_item_to_cart(cart_id, product_id, weight, strapi_url, session):
     response = session.post(url_item, json=payload_item, timeout=5)
     response.raise_for_status()
     return response.json()["data"]["id"]
+
+
+def _update_cart_item(item_id, new_quantity, strapi_url, session):
+    """Обновляет вес существующей позиции (PUT)."""
+    url_item = f"{strapi_url}/api/cart-items/{item_id}"
+    payload = {"data": {"quantity": new_quantity}}
+    response = session.put(url_item, json=payload, timeout=5)
+    response.raise_for_status()
+    return item_id
+
+
+def add_item_to_cart(user_id, product_id, weight, strapi_url, session):
+    """Добавляем товар в корзину. Если есть — обновляет, если нет — создаёт."""
+    cart_id, cart_items = get_or_create_cart(user_id, strapi_url, session)
+
+    for item in cart_items:
+        item_product = item.get("attributes", {}).get("product", {}).get("data")
+        if not item_product:
+            continue
+
+        if str(item_product["id"]) == str(product_id):
+            # Считаем в Decimal, чтобы не было хвостов float
+            current_weight = Decimal(str(item["attributes"]["quantity"]))
+            add_weight = Decimal(str(weight))
+            new_quantity = current_weight + add_weight
+            return _update_cart_item(
+                item["id"],
+                float(new_quantity),
+                strapi_url,
+                session,
+            )
+
+    return _create_cart_item(cart_id, product_id, weight, strapi_url, session)
 
 
 def get_cart_with_products(user_id, strapi_url, session):

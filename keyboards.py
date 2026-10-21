@@ -21,10 +21,8 @@ def build_menu(context, offset=0):
         )
     for product in products:
         product_id = str(product["id"])
-        if "attributes" in product:
-            title = product["attributes"].get("title", "Без названия")
-        else:
-            title = product.get("title", "Без названия")
+
+        title = product["attributes"].get("title", "Без названия")
         keyboard.append([InlineKeyboardButton(title, callback_data=product_id)])
 
     next_offset = offset + PRODUCTS_PER_PAGE

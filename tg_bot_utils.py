@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 import requests
@@ -70,32 +71,50 @@ def cleanup_chat(chat_id, context):
     redis_connect = context.bot_data["redis"]
     key = f"chat_msgs:{chat_id}"
 
-    for tracked_message_id in redis_connect.smembers(key):
+    tracked_messages = redis_connect.smembers(key)
+    for tracked_message_id in tracked_messages:
         try:
             context.bot.delete_message(
                 chat_id=chat_id, message_id=int(tracked_message_id)
             )
         except BadRequest:
             pass
-        redis_connect.srem(key, tracked_message_id)
+    redis_connect.delete(key)
+
+
+def _safe_decimal(value):
+    """Безопасно преобразует значение в Decimal. При ошибке возвращает 0.00."""
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0.00")
 
 
 def format_cart_text(cart_items):
-    """Форматирует список позиций в строку."""
+    """Форматирует список позиций в строку и считает итоговую сумму."""
     if not cart_items:
         return "Ваша корзина пуста."
 
     text = "<b>Ваша корзина:</b>\n\n"
+    total_sum = Decimal("0.00")
+
     for item in cart_items:
         attrs = item.get("attributes", {})
-        weight = attrs.get("quantity", 0)
         product = attrs.get("product", {}).get("data")
-        if product:
-            product_attrs = product.get("attributes", {})
-            title = product_attrs.get("title", "Без названия")
-            price = product_attrs.get("price", "0")
-            text += f"{title} — {weight} кг — {price} руб.\n"
 
+        if not product:
+            continue
+
+        product_attrs = product.get("attributes", {})
+        title = product_attrs.get("title", "Без названия")
+
+        weight = _safe_decimal(attrs.get("quantity", 0))
+        price = _safe_decimal(product_attrs.get("price", 0))
+
+        total_sum += price * weight
+        text += f"{title} — {weight} кг — {price} руб.\n"
+
+    text += f"\n<b>Итого:</b> {total_sum:.2f} руб."
     return text
 
 

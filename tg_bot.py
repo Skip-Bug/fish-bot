@@ -24,7 +24,6 @@ from strapi_client import (
     fetch_product_details,
     find_client,
     get_cart_with_products,
-    get_or_create_cart,
     get_or_create_client,
     load_picture,
 )
@@ -52,6 +51,7 @@ def _send_product_message(update, context, product_data):
         f"{product_data['description']}\n\n"
         f"<b>Цена:</b> {product_data['price']} руб."
     )
+    
     markup = add_cart_menu(product_data["id"])
 
     if product_data["picture_data"]:
@@ -171,8 +171,13 @@ def handle_description(update, context):
     session = context.bot_data["strapi_session"]
 
     try:
-        cart_id = get_or_create_cart(query.message.chat_id, strapi_url, session)
-        add_item_to_cart(cart_id, product_id, 1, strapi_url, session)
+        add_item_to_cart(
+            query.message.chat_id,
+            product_id,
+            1,
+            strapi_url,
+            session,
+        )
         query.answer("Товар добавлен!", show_alert=True)
     except Exception:
         query.answer("Ошибка при добавлении", show_alert=True)
